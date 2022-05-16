@@ -1,0 +1,16 @@
+version: "3.8"
+services:
+  app:
+    image: duaaghazi/trends:v0.1
+    volumes:
+      - .:/app:rw
+    ports:
+      - "5000:5000"
+    environment:
+      - KEYCLOAK_BASE_URL=http://192.168.1.29:9080
+      - SERVER_BASE_URL=http://192.168.1.29
+      - KEYCLOAK_REALM=emaas
+      - KEYCLOAK_CLIENT_ID=web_app
+      - TENANT_ADMIN_USERNAME=dudughazi@emaas.net
+      - TENANT_ADMIN_PASSWORD=123
+      - BACKEND_PORT=8080

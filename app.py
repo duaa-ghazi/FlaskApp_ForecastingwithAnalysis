@@ -1,38 +1,26 @@
 import requests
-from flask import Flask, render_template_string, send_file
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, request
 from requests.structures import CaseInsensitiveDict
 import pandas as pd
 import numpy as np
 from prophet import Prophet
-from pyspark.sql import *
-from pandas import read_csv
-from pandas import to_datetime
-from IPython.display import HTML
-import matplotlib.pyplot as plt
-from pandas import to_datetime
-from datetime import datetime
-import seaborn as sns
-import io
-import random
 import json
-from flask import Response
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-from matplotlib.figure import Figure
+import os
 
 app = Flask(__name__)
-
+app.config.from_object('config')
 
 def get_token():
-    url = "https://iotdev.altshiftcreative.net/auth/realms/rakuten-iot/protocol/openid-connect/token"
+    url =os.environ["KEYCLOAK_BASE_URL"] + "/auth/realms/" + os.environ[
+        "KEYCLOAK_REALM"] + "/protocol/openid-connect/token"
+
+    print(url)
     headers = CaseInsensitiveDict()
-    data = {"username": "duaa.qawaqzeh@altshiftcreative.com",
-            "password": "rak123",
+    data = {"username":os.environ["TENANT_ADMIN_USERNAME"],
+            "password":os.environ["TENANT_ADMIN_PASSWORD"],
             "grant_type": "password",
-            "client_id": "web_app"
-
+            "client_id": os.environ["KEYCLOAK_CLIENT_ID"]
             }
-
     headers["Accept"] = "application/json"
     response = requests.post(url, data=data, headers=headers)
     print(response);
@@ -40,14 +28,23 @@ def get_token():
 
 
 def get_all_telemetries():
-    url = "http://localhost:8080/api/plugins/telemetry/values/allTimeseries"
+    url = os.environ["SERVER_BASE_URL"] + ":" + os.environ["BACKEND_PORT"] + "/api/plugins/telemetry/values/allTimeseries"
+    print(url)
     headers = CaseInsensitiveDict()
     headers["Accept"] = "application/json"
     headers["Authorization"] = "Bearer " + get_token()
-    response = requests.get(url, headers=headers)
+    headers["user-agent"] = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) ' \
+                            'Chrome/86.0.4240.111 Safari/537.36 '
+
+    response = requests.get(url, headers=headers, timeout=3)
+    requests.adapters.DEFAULT_RETRIES = 5
+    s = requests.session()
+    s.keep_alive = False
     print(response.status_code)
+    print()
     data_frame = pd.DataFrame.from_dict(response.json())
-    data_frame['doubleValue']=data_frame['doubleValue'].fillna(data_frame['longValue'])
+    print(data_frame)
+    data_frame['doubleValue'] = data_frame['doubleValue'].fillna(data_frame['longValue'])
     print(data_frame.describe())
     data_frame = data_frame.dropna(subset=['doubleValue'])
     print(data_frame.describe())
@@ -56,29 +53,30 @@ def get_all_telemetries():
 
 allTelemetry = get_all_telemetries()
 
-
 def get_specific_telemetry(telemetry):
     dataframe_telemetry = allTelemetry.loc[allTelemetry['strKey'] == telemetry]
     dataframe_telemetry['ts'] = pd.to_datetime(dataframe_telemetry['ts'], unit='ms').dt.normalize()
     dataframe_telemetry = dataframe_telemetry.sort_values(by='ts')
     return dataframe_telemetry
 
-def get_specific_telemetry_dateRange_calculatedAnalytics(telemetry,fromDate,toDate,entityId):
-    if fromDate!= "" and toDate!= "" and entityId!= "":
-        dataframe_telemetry = allTelemetry.loc[allTelemetry['strKey'] == telemetry ]
-        dataframe_telemetry = dataframe_telemetry.loc[allTelemetry['entityId'] == entityId ]
+
+def get_specific_telemetry_dateRange_calculatedAnalytics(telemetry, fromDate, toDate, entityId):
+    if fromDate != "" and toDate != "" and entityId != "":
+        dataframe_telemetry = allTelemetry.loc[allTelemetry['strKey'] == telemetry]
+        dataframe_telemetry = dataframe_telemetry.loc[allTelemetry['entityId'] == entityId]
 
         dataframe_telemetry['ts'] = pd.to_datetime(dataframe_telemetry['ts'], unit='ms').dt.normalize()
         dataframe_telemetry = dataframe_telemetry.sort_values(by='ts')
 
-        mask = (dataframe_telemetry['ts'] >= pd.to_datetime(fromDate, format='%d/%m/%Y')) & (dataframe_telemetry['ts']<= pd.to_datetime(toDate, format='%d/%m/%Y'))
+        mask = (dataframe_telemetry['ts'] >= pd.to_datetime(fromDate, format='%d/%m/%Y')) & (
+                    dataframe_telemetry['ts'] <= pd.to_datetime(toDate, format='%d/%m/%Y'))
         dataframe_telemetry = dataframe_telemetry.loc[mask]
         print(dataframe_telemetry.loc[mask])
-        return  dataframe_telemetry
+        return dataframe_telemetry
 
 
-    elif fromDate!="" and toDate!="" and entityId=="":
-        dataframe_telemetry = allTelemetry.loc[allTelemetry['strKey'] == telemetry ]
+    elif fromDate != "" and toDate != "" and entityId == "":
+        dataframe_telemetry = allTelemetry.loc[allTelemetry['strKey'] == telemetry]
         dataframe_telemetry['ts'] = pd.to_datetime(dataframe_telemetry['ts'], unit='ms').dt.normalize()
         dataframe_telemetry = dataframe_telemetry.sort_values(by='ts')
 
@@ -87,25 +85,25 @@ def get_specific_telemetry_dateRange_calculatedAnalytics(telemetry,fromDate,toDa
         print("pd.to_datetime(fromDate)")
         print(pd.to_datetime(fromDate, format='%d/%m/%Y'))
 
-        mask = (dataframe_telemetry['ts'] >= pd.to_datetime(fromDate, format='%d/%m/%Y')) & (dataframe_telemetry['ts']<=pd.to_datetime( toDate, format='%d/%m/%Y'))
+        mask = (dataframe_telemetry['ts'] >= pd.to_datetime(fromDate, format='%d/%m/%Y')) & (
+                    dataframe_telemetry['ts'] <= pd.to_datetime(toDate, format='%d/%m/%Y'))
         dataframe_telemetry = dataframe_telemetry.loc[mask]
         print('data after')
 
         print(dataframe_telemetry.loc[mask])
-        return  dataframe_telemetry
+        return dataframe_telemetry
 
 
     elif fromDate == "" and toDate == "" and entityId != "":
-        dataframe_telemetry = allTelemetry.loc[allTelemetry['strKey'] == telemetry ]
-        dataframe_telemetry = dataframe_telemetry.loc[allTelemetry['entityId'] == entityId ]
+        dataframe_telemetry = allTelemetry.loc[allTelemetry['strKey'] == telemetry]
+        dataframe_telemetry = dataframe_telemetry.loc[allTelemetry['entityId'] == entityId]
 
         dataframe_telemetry['ts'] = pd.to_datetime(dataframe_telemetry['ts'], unit='ms').dt.normalize()
         dataframe_telemetry = dataframe_telemetry.sort_values(by='ts')
-        return  dataframe_telemetry
+        return dataframe_telemetry
     else:
         dataframe_telemetry = allTelemetry.loc[allTelemetry['strKey'] == telemetry]
         return dataframe_telemetry
-
 
 
 def group_by_date_by_calculate_sum_for_each_day_withProphet(telemetry):
@@ -160,6 +158,8 @@ def prepare_telemetries_with_prophet(telemetryType):
                            describeData=data_frame.describe())
 
 
+# TODO : This route is running correctly when run app locally . but after we build a docker image from app it gave an
+#  error related to prophet (the reason may be  version issue or os issue )
 @app.route('/api/fit_predict_with_prophet/<telemetryType>')
 def fit_predict_with_prophet(telemetryType):
     freq = request.args.get("freq", default="", type=str)
@@ -167,6 +167,7 @@ def fit_predict_with_prophet(telemetryType):
 
     data_frame = group_fill_acc(telemetryType)
     model = Prophet()
+    print(model.stan_backend)
     model.fit(data_frame)
     future_pd = model.make_future_dataframe(
         periods=periods, freq=freq, include_history=False
@@ -183,12 +184,10 @@ def fit_predict_with_prophet(telemetryType):
 
     predicted = {
         'x': list(forecast_pd['ds'].astype(str)),
-        'y':list(forecast_pd['yhat']),
+        'y': list(forecast_pd['yhat']),
     }
 
     return json.dumps(predicted)
-
-
 
 
 @app.route('/api/calculated_analytics/<telemetryType>')
@@ -197,17 +196,17 @@ def calculated_analytics(telemetryType):
     toDate = request.args.get("toDate", default="", type=str)
     entityId = request.args.get("entityId", default="", type=str)
 
-    data_frame=get_specific_telemetry_dateRange_calculatedAnalytics(telemetryType, fromDate, toDate, entityId)
+    data_frame = get_specific_telemetry_dateRange_calculatedAnalytics(telemetryType, fromDate, toDate, entityId)
     print(data_frame.describe())
     # return render_template('view.html', PageTitle="Pandas",
     #                 table=[data_frame.to_html(classes=["table "], index=False)],
     #                 titles=data_frame.columns.values,
     #                 )
 
-    analytics={
-        'count':float( data_frame['doubleValue'].count()),
-        'mean':round(float(data_frame['doubleValue'].mean()),6),
-        'std': round(float(data_frame['doubleValue'].std()),6),
+    analytics = {
+        'count': float(data_frame['doubleValue'].count()),
+        'mean': round(float(data_frame['doubleValue'].mean()), 6),
+        'std': round(float(data_frame['doubleValue'].std()), 6),
         'min': float(data_frame['doubleValue'].min()),
         'max': float(data_frame['doubleValue'].max()),
         'sum': float(data_frame['doubleValue'].sum()),
@@ -225,7 +224,7 @@ def plot(telemetryType):
     toDate = request.args.get("toDate", default="", type=str)
     entityId = request.args.get("entityId", default="", type=str)
 
-    data_frame=get_specific_telemetry_dateRange_calculatedAnalytics(telemetryType, fromDate, toDate, entityId)
+    data_frame = get_specific_telemetry_dateRange_calculatedAnalytics(telemetryType, fromDate, toDate, entityId)
     # return render_template('view.html', PageTitle="Pandas",
     #                 table=[data_frame.to_html(classes=["table "], index=False)],
     #                 titles=data_frame.columns.values,
@@ -238,21 +237,21 @@ def plot(telemetryType):
     # bytes_image = io.BytesIO()
     # plt.savefig(bytes_image, format='png')
     # bytes_image.seek(0)
-    data_frame=data_frame.groupby('ts', as_index=False)['doubleValue'].sum()
+    data_frame = data_frame.groupby('ts', as_index=False)['doubleValue'].sum()
     plot = {
         'x': list(data_frame['ts'].astype(str)),
-        'y':list(data_frame['doubleValue']),
+        'y': list(data_frame['doubleValue']),
     }
 
     return json.dumps(plot)
 
+
 @app.route('/api/telemetriesNames')
 def get_telemetries_names():
     telemetries = allTelemetry['strKey'].tolist()
-    telemetriesNames=list(set(telemetries))
-    return  json.dumps(telemetriesNames)
-
+    telemetriesNames = list(set(telemetries))
+    return json.dumps(telemetriesNames)
 
 
 if __name__ == '__main__':
-    app.run()
+    app.run(host="0.0.0.0")
